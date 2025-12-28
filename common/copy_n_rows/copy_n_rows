@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ====== CONFIG: set the conda environment name where the pandas package is installed ======
+CONDA_ENV="general-env"
+# ===========================================
+
+if [[ $# -lt 3 || $# -gt 6 ]]; then
+    echo "Usage: $0 INPUT_FILE OUTPUT_FILE N [MODE] [SHEET_NAME or SEED] [SEED]" >&2
+    echo "  MODE: head (default), tail, or random" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  $0 in.xlsx out.xlsx 200                  # head 200" >&2
+    echo "  $0 in.xlsx out.xlsx 200 random           # random 200, no seed" >&2
+    echo "  $0 in.xlsx out.xlsx 200 random 42        # random 200, seed=42" >&2
+    echo '  $0 in.xlsx out.xlsx 200 random "Sheet2"   # random from Sheet2, no seed' >&2
+    echo '  $0 in.xlsx out.xlsx 200 random "Sheet2" 42  # random from Sheet2, seed=42' >&2
+    exit 1
+fi
+
+INPUT_FILE=$1
+OUTPUT_FILE=$2
+N=$3
+MODE=${4:-head}
+
+SHEET_NAME=""
+SEED=""
+
+# Validate N is a non-negative integer
+case "$N" in
+    ''|*[!0-9]*)
+        echo "Error: N must be a non-negative integer (got: '$N')" >&2
+        exit 1
+        ;;
+esac
+
+# Validate MODE
+case "$MODE" in
+    head|tail|random) ;;
+    *)
+        echo "Error: MODE must be one of: head, tail, random (got: '$MODE')" >&2
+        exit 1
+        ;;
+esac
+
+if [[ ! -f "$INPUT_FILE" ]]; then
+    echo "Error: Input file '$INPUT_FILE' not found." >&2
+    exit 1
+fi
+
+# ---- Handle optional args: SHEET_NAME / SEED ----
+# 3 args: INPUT OUTPUT N
+# 4 args: + MODE
+# 5 args: arg5 is either SHEET_NAME or SEED
+# 6 args: arg5=SHEET_NAME, arg6=SEED
+
+if [[ $# -eq 5 ]]; then
+    fifth=$5
+    # If 5th arg looks like an integer => treat as SEED
+    if [[ "$fifth" =~ ^-?[0-9]+$ ]]; then
+        SEED="$fifth"
+    else
+        SHEET_NAME="$fifth"
+    fi
+elif [[ $# -eq 6 ]]; then
+    SHEET_NAME=$5
+    SEED=$6
+fi
+
+# ---- Activate conda env ----
+if ! command -v conda >/dev/null 2>&1; then
+    echo "Error: 'conda' command not found. Make sure conda is installed and on PATH." >&2
+    exit 1
+fi
+
+eval "$(conda shell.bash hook)"
+conda activate "$CONDA_ENV"
+
+# ---- Locate Python script ----
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY_SCRIPT="${SCRIPT_DIR}/python_scripts/copy_rows.py"
+
+if [[ ! -f "$PY_SCRIPT" ]]; then
+    echo "Error: Python script '$PY_SCRIPT' not found. Place copy_rows.py in the same directory as $0." >&2
+    exit 1
+fi
+
+python "$PY_SCRIPT" "$INPUT_FILE" "$OUTPUT_FILE" "$N" "$MODE" "$SHEET_NAME" "$SEED"
